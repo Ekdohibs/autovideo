@@ -1,0 +1,83 @@
+
+Installation
+============
+
+- Mettre ce dossier quelque part
+- Ajouter un lien symbolique vers spectacles.py dans .config/blender/[version]/scripts/addons/
+- Compiler envelope.cpp (gcc -O2 envelope.c -o envelope) et mettre le fichier exécutable envelope dans le $PATH.
+
+Utilisation
+===========
+
+- Dans le dossier de travail, créer des sous-dossiers RawVideo, Music, et Render.
+- Créer un fichier texte "info"
+- Créer un nouveau fichier blender, activer le plugin (dans File > User Preferences, puis
+  Add-Ons, catégorie "User")
+- Le menu "Spectacles" est situé sous "Strip"
+
+Montage
+-------
+- Ajouter les vidéos
+- Ajouter les musiques
+- Effectuer les opérations Spectacles > Compute Reference Sound Envelope
+  et Spectacles > Compute Sound Envelope
+- Effectuer Spectacles > Align All Sounds
+- Pour chaque son non correctement aligné :
+  * Modifer les paramètres "align_start", "align_end", et "align_near" en faisant clic-droit sur le son.
+    "align_start": début, dans le fichier son (en frames), de la sous-plage à utiliser pour calculer la position
+    "align_end": fin, dans le fichier son (en frames), de la sous-plage à utiliser pour calculer la position
+    "align_near": nombre maximal de frames duquel déplacer le son de sa position actuelle
+  * Effectuer Spectacles > Align Sound
+- Utiliser Spectacles > Ajust Sounds pour ajuster le volume ajouté par rapport au volume initial.
+
+
+Format du fichier "info"
+------------------------
+
+Descriptions de fichiers, séparées par "###" seul sur une ligne
+1ère ligne: nom du fichier
+chacune des lignes suivantes: couple clé/valeur, séparées par ":"
+
+Exemple:
+```Fichier1.wav
+relative_volume:1
+
+###
+Fichier2.mp3
+end_sound_offset:-100
+end_sound_cross_duration:100```
+
+Options dans le fichier "info"
+------------------------------
+
+Format ci-dessous: option:valeur_par_défaut
+
+- "relative_volume:3" :
+    Le ratio des volumes musique ajoutée / musique existante
+- "begin_sound_offset:-200" :
+    Le retard, en frames, que doit avoir l'ajustement du son pour le rajouter sur le début de la musique
+- "end_sound_offset:0" :
+    Le retard, en frames, que doit avoir l'ajustement du son pour remettre entièrement
+    le son de la caméra sur la fin de la musique
+- "begin_sound_cross_duration:50" :
+    La durée, en frames, de l'ajustement sonore du début
+- "end_sound_cross_duration:50" :
+    La durée, en frames, de l'ajustement sonore à la fin
+- "begin_image:black.png" :
+    L'image initiale
+- "begin_render_offset:0" :
+    La durée, en frames, entre le début de la bande son et de l'apparition de la scène
+- "begin_image_duration:150" :
+    La durée, en frames, de l'image initiale (transition non incluse)
+- "begin_cross_duration:50" :
+    La durée, en frames, de la transition initiale.
+- "end_image:black.png" :
+    L'image finale
+- "end_render_offset:0" :
+    La durée, en frames, entre la fin de la bande son et la disparition de la scène
+- "end_image_duration:100" :
+    La durée, en frames, de l'image finale (transition non incluse)
+- "end_cross_duration:50" :
+    La durée, en frames, de la transition finale.
+- "filename:render_[n].mp4" :
+    le nom du fichier de sortie
