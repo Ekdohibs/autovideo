@@ -4,14 +4,19 @@ import numpy as np
 import os
 import sys
 
+#from threading import Thread
+import concurrent.futures
+
+MAX_WORKERS = 4
+
 bl_info = {
     "name" : "Spectacles",
     "category" : "Object",
 }
 
 default_values = {
-    "relative_volume" : 3,
-    "begin_sound_offset" : -200,
+    "relative_volume" : 5,
+    "begin_sound_offset" : 0,
     "end_sound_offset" : 0,
     "begin_sound_cross_duration" : 50,
     "end_sound_cross_duration" : 50,
@@ -21,8 +26,10 @@ default_values = {
     "begin_cross_duration" : 50,
     "end_image" : "black.png",
     "end_render_offset" : 0,
-    "end_image_duration" : 100,
+    "end_image_duration" : 200,
     "end_cross_duration" : 50,
+    "end_volume_decrease_duration" : 200,
+    "sound_before_start" : "no",
 }
 
 def getopt(i, opt, default = None):
@@ -30,6 +37,9 @@ def getopt(i, opt, default = None):
         return i.get(opt, default_values[opt])
     else:
         return i.get(opt, default)
+
+def is_yes(x):
+    return x != "" and x[0] in "yoYO"
 
 envelope_path = "envelope"
 
@@ -113,7 +123,7 @@ def split_seqs(sequences):
 
 def remove_all_images(context):
     img = [s for s in context.sequences if s.type == "IMAGE"]
-    #bpy.ops.object.select_all(action='DESELECT')
+    bpy.ops.sequencer.select_all(action='DESELECT')
     for i in img:
         i.select = True
     bpy.ops.sequencer.delete()
@@ -252,9 +262,9 @@ def parse_info():
                 y = t.strip().split(":", 1)
                 r[y[0]] = y[1]
             d[filename] = r
-        for filename in d:
-            print(filename + ":")
-            print(d[filename])
+        #for filename in d:
+        #    print(filename + ":")
+        #    print(d[filename])
         return d
 
 def clear_anim_data(context, tp):
@@ -262,6 +272,15 @@ def clear_anim_data(context, tp):
     for i in range(len(fcurves)-1,-1,-1):
         if fcurves[i].data_path.split(".")[-1] == tp:
             fcurves.remove(fcurves[i])
+
+def get_render_start(info, only_audio, k):
+    i = info[k]
+    return only_audio[k][1].frame_start + int(getopt(i, "begin_render_offset")) - int(getopt(i, "begin_image_duration"))
+
+def get_render_end(info, only_audio, k):
+    i = info[k]
+    return only_audio[k][1].frame_start + only_audio[k][1].frame_duration + int(getopt(i, "end_render_offset")) + int(getopt(i, "end_image_duration"))
+
 
 class SoundAjust(bpy.types.Operator):
     """Ajust Sounds"""
@@ -288,16 +307,21 @@ class SoundAjust(bpy.types.Operator):
             begin = only_audio[k][1].frame_start
             end = begin + only_audio[k][1].frame_duration
             vol = 1./(1 + rel_volume)
-            for t in video_audio:
-                obj = video_audio[t]
-                obj.volume = 1
-                obj.keyframe_insert(data_path = 'volume', frame = begin - begin_cross_duration + begin_offset)
-                obj.volume = vol
-                obj.keyframe_insert(data_path = 'volume', frame = begin + begin_offset)
-                obj.volume = vol
-                obj.keyframe_insert(data_path = 'volume', frame = end + end_offset)
-                obj.volume = 1
-                obj.keyframe_insert(data_path = 'volume', frame = end + end_cross_duration + end_offset)
+            def set_vol_at_point(v, frame):
+                for t in video_audio:
+                    obj = video_audio[t]
+                    obj.volume = v
+                    obj.keyframe_insert(data_path = 'volume', frame = frame)
+            start_vol = 1 if is_yes(getopt(i, "sound_before_start")) else 0
+            set_vol_at_point(start_vol, min(get_render_start(info, only_audio, k), begin - begin_cross_duration + begin_offset))
+            set_vol_at_point(start_vol, begin - begin_cross_duration + begin_offset)
+            set_vol_at_point(vol, begin + begin_offset)
+            set_vol_at_point(vol, end + end_offset)
+            set_vol_at_point(1, end + end_cross_duration + end_offset)
+            render_end = get_render_end(info, only_audio, k)
+            t1 = max(end + end_cross_duration + end_offset, render_end - getopt(i, "end_volume_decrease_duration"))
+            set_vol_at_point(1, t1)
+            set_vol_at_point(0, render_end)
             only_audio[k][1].volume = rel_volume * vol
         
         return {'FINISHED'}
@@ -320,8 +344,8 @@ class TransitionAdd(bpy.types.Operator):
             i = info[k]
             if k not in only_audio: continue
             img = getopt(i, "begin_image")
-            end = only_audio[k][1].frame_start + int(getopt(i, "begin_render_offset"))
-            begin = end - int(getopt(i, "begin_image_duration")) - 50 # -1s to avoid artifacts at the start
+            begin = get_render_start(info, only_audio, k) - 50 # -1s to avoid artifacts at the start
+            end = get_render_start(info, only_audio, k) + int(getopt(i, "begin_image_duration"))
             bpy.ops.sequencer.image_strip_add(directory=bpy.path.abspath("//Images"),files=[{"name":img}],frame_start=begin)
             img = getimg(context,begin)
             img.frame_final_duration = end-begin
@@ -333,8 +357,8 @@ class TransitionAdd(bpy.types.Operator):
             img.keyframe_insert(data_path = 'blend_alpha', frame = end)
 
             img = getopt(i, "end_image")
-            begin = only_audio[k][1].frame_start + only_audio[k][1].frame_duration + int(getopt(i, "end_render_offset"))
-            end = begin + int(getopt(i, "end_image_duration")) + 50 # +1s to avoid artifacts at the end
+            begin = get_render_end(info, only_audio, k) - int(getopt(i, "end_image_duration"))
+            end = get_render_end(info, only_audio, k) + 50 # +1s to avoid artifacts at the end
             bpy.ops.sequencer.image_strip_add(directory=bpy.path.abspath("//Images"),files=[{"name":img}],frame_start=begin)
             img = getimg(context,begin)
             img.frame_final_duration = end-begin
@@ -347,12 +371,85 @@ class TransitionAdd(bpy.types.Operator):
 
         return {'FINISHED'}
 
+def do_blender_call(command, filename, begin, end):
+    print("Running {}".format(" ".join(command)))
+    p = subprocess.Popen(command, stdout=subprocess.PIPE)
+    lastpercent = 0
+    for line in p.stdout:
+        if line.startswith(b"Append"):
+            frame = int(line.split()[-1])
+            percent = (100 * (frame - begin)) // (end - begin)
+            if percent > lastpercent:
+                lastpercent = percent
+                Z = 5
+                if percent % Z == 0:
+                    print("{}: {}% [{}]".format(filename, percent, "=" * (percent // Z) + " " * (100 - percent) // Z))
+            
+    p.wait()
+    print("Done running {}".format(" ".join(command)))
+
+executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS)
+all_futures = set()
+
+def wait_for_results():
+    for future in concurrent.futures.as_completed(all_futures):
+        future.result()
+    all_futures.clear()
+
+class RenderThread(Thread):
+    def __init__(self, command, filename, begin, end):
+        Thread.__init__(self)
+        self.command = command
+        self.filename = filename
+        self.begin = begin
+        self.end = end
+
+    def run(self):
+        do_blender_call(self.command, self.filename, self.begin, self.end)
+
+def render_one(context, k):
+    _, _, only_audio = split_seqs(context.sequences)
+    info = parse_info()
+    begin = get_render_start(info, only_audio, k)
+    end = get_render_end(info, only_audio, k)
+    filename = getopt(info[k], "filename", "render_%s.mp4" % begin)
+    filename = bpy.path.abspath("//Render/" + filename)
+    #bpy.data.scenes["Scene"].render.filepath = filename
+    #bpy.data.scenes["Scene"].frame_start = begin
+    #bpy.data.scenes["Scene"].frame_end = end
+    bpath = bpy.path.abspath("//.render.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=bpath)
+    command = ["blender", "-b", bpath, "-E", "BLENDER_RENDER", "-s", str(begin), "-e", str(end), "-o", filename, "-a"]
+    #RenderThread(command, filename, begin, end).start()
+    all_futures.add(executor.submit(do_blender_call, command, filename, begin, end))
+    #print("Starting to render %s" % filename)
+    #bpy.ops.render.render(animation=True)
+    #subprocess.Popen(command)
+    #print("Done")
+
+class DoRenderOne(bpy.types.Operator):
+    """"""
+    bl_idname = "object.do_render_one"
+    bl_label = "Render This Sequence"
+    bl_options = {'REGISTER'}
+
+    def execute(self, context):
+        os.chdir(bpy.path.abspath("//"))
+        info = parse_info()
+        _, _, only_audio = split_seqs(context.selected_sequences)
+
+        t = 0
+        for k in info:
+            if k not in only_audio: continue
+            render_one(context, k)
+        wait_for_results()
+        return {'FINISHED'}
 
 class DoRender(bpy.types.Operator):
     """"""
     bl_idname = "object.do_render"
     bl_label = "Render Everything"
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'REGISTER'}
 
     def execute(self, context):
         os.chdir(bpy.path.abspath("//"))
@@ -361,19 +458,9 @@ class DoRender(bpy.types.Operator):
 
         t = 0
         for k in info:
-            i = info[k]
             if k not in only_audio: continue
-            t += 1
-            begin = only_audio[k][1].frame_start + int(getopt(i, "begin_render_offset")) - int(getopt(i, "begin_image_duration"))
-            end = only_audio[k][1].frame_start + only_audio[k][1].frame_duration + int(getopt(i, "end_render_offset")) + int(getopt(i, "end_image_duration"))
-            filename = getopt(i, "filename", "render_%s.mp4" % t)
-            bpy.data.scenes["Scene"].render.filepath = bpy.path.abspath("//Render/" + filename)
-            bpy.data.scenes["Scene"].frame_start = begin
-            bpy.data.scenes["Scene"].frame_end = end
-            print("Starting to render %s" % filename)
-            bpy.ops.render.render(animation=True)
-            print("Done")
-
+            render_one(context, k)
+        wait_for_results()
         return {'FINISHED'}
 
 
@@ -390,6 +477,7 @@ class SpectaclesMenu(bpy.types.Menu):
         layout.operator(SoundAlignAll.bl_idname)
         layout.operator(SoundAjust.bl_idname)
         layout.operator(TransitionAdd.bl_idname)
+        layout.operator(DoRenderOne.bl_idname)
         layout.operator(DoRender.bl_idname)
 
 classes = [
@@ -401,6 +489,7 @@ classes = [
     SoundAjust,
     TransitionAdd,
     DoRender,
+    DoRenderOne,
 ]
 
 def panel_func(self, context):

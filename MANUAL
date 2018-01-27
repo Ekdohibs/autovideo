@@ -52,9 +52,9 @@ Options dans le fichier "info"
 
 Format ci-dessous: option:valeur_par_défaut
 
-- "relative_volume:3" :
+- "relative_volume:5" :
     Le ratio des volumes musique ajoutée / musique existante
-- "begin_sound_offset:-200" :
+- "begin_sound_offset:0" :
     Le retard, en frames, que doit avoir l'ajustement du son pour le rajouter sur le début de la musique
 - "end_sound_offset:0" :
     Le retard, en frames, que doit avoir l'ajustement du son pour remettre entièrement
@@ -75,9 +75,13 @@ Format ci-dessous: option:valeur_par_défaut
     L'image finale
 - "end_render_offset:0" :
     La durée, en frames, entre la fin de la bande son et la disparition de la scène
-- "end_image_duration:100" :
+- "end_image_duration:200" :
     La durée, en frames, de l'image finale (transition non incluse)
 - "end_cross_duration:50" :
     La durée, en frames, de la transition finale.
 - "filename:render_[n].mp4" :
-    le nom du fichier de sortie
+    Le nom du fichier de sortie
+- "end_volume_decrease_duration:200" :
+    La durée, en frames, du temps que va mettre le volume à devenir 0 à la fin.
+- "sound_before_start:no" :
+    Si il y a du son de la caméra avant le début de la musique.
