@@ -3,8 +3,9 @@ import subprocess
 import numpy as np
 import os
 import sys
+import time
 
-#from threading import Thread
+from threading import Thread
 import concurrent.futures
 
 MAX_WORKERS = 4
@@ -371,10 +372,22 @@ class TransitionAdd(bpy.types.Operator):
 
         return {'FINISHED'}
 
+def show_time(x):
+    x = int(x)
+    s = str(x % 60) + "s"
+    x //= 60
+    if x > 0:
+        s = str(x % 60) + "m" + s
+        x //= 60
+        if x > 0:
+            s = str(x) + "h" + s
+    return s
+
 def do_blender_call(command, filename, begin, end):
     print("Running {}".format(" ".join(command)))
     p = subprocess.Popen(command, stdout=subprocess.PIPE)
     lastpercent = 0
+    tm = time.time()
     for line in p.stdout:
         if line.startswith(b"Append"):
             frame = int(line.split()[-1])
@@ -383,7 +396,11 @@ def do_blender_call(command, filename, begin, end):
                 lastpercent = percent
                 Z = 5
                 if percent % Z == 0:
-                    print("{}: {}% [{}]".format(filename, percent, "=" * (percent // Z) + " " * (100 - percent) // Z))
+                    t = time.time()
+                    el = t - tm
+                    tm = t
+                    eta = el * (100 - percent) / Z
+                    print("{}: {}% [{}] (elapsed: {}, ETA: {})".format(filename, percent, "=" * (percent // Z) + " " * ((100 - percent) // Z), show_time(el), show_time(eta)))
             
     p.wait()
     print("Done running {}".format(" ".join(command)))
@@ -391,10 +408,19 @@ def do_blender_call(command, filename, begin, end):
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS)
 all_futures = set()
 
-def wait_for_results():
+def do_wait_for_results():
     for future in concurrent.futures.as_completed(all_futures):
         future.result()
     all_futures.clear()
+
+class ResultWaiter(Thread):
+    def __init__(self):
+        Thread.__init__(self)
+    def run(self):
+        do_wait_for_results()
+
+def wait_for_results():
+    ResultWaiter().start()
 
 class RenderThread(Thread):
     def __init__(self, command, filename, begin, end):
